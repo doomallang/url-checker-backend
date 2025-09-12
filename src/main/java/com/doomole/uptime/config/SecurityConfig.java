@@ -28,6 +28,7 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/ws/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/**").permitAll() // 읽기는 공개(데모 기준)
                         .requestMatchers("/api/v1/auth/**").permitAll()    // 로그인/회원가입 공개
                         .anyRequest().authenticated())

@@ -13,6 +13,7 @@ import com.doomole.uptime.repo.HealthCheckRepo;
 import com.doomole.uptime.repo.HealthCheckResultRepo;
 import com.doomole.uptime.utils.CommonUtil;
 import lombok.RequiredArgsConstructor;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -29,6 +30,8 @@ public class HealthCheckService {
     private final HealthCheckRepo healthCheckRepo;
     private final WebClient webClient;
     private final HealthCheckResultRepo healthCheckResultRepo;
+
+    private final SimpMessagingTemplate messagingTemplate;
 
     public HealthCheckResponse addHealthCheck(HealthCheckRequest request) {
         String url = CommonUtil.normalizeUrl(request.url());
@@ -162,6 +165,12 @@ public class HealthCheckService {
 
     @Transactional
     public void runOneCheck(HealthCheck healthCheck, LocalDateTime now) {
+        if (!healthCheck.isEnabled()) return; // 🔹비활성 스킵
+
+        if (healthCheck.getType() != CheckType.HTTP) {
+            return;
+        }
+
         int httpCode = 0;
         Integer latencyMs = null;
         String error = null;
@@ -207,6 +216,18 @@ public class HealthCheckService {
         healthCheck.setUpdatedAt(now);
 
         healthCheckRepo.save(healthCheck);
+
+        // ✅ WS 브로드캐스트 (프론트 훅이 구독하는 채널)
+        var event = com.doomole.uptime.dto.HealthCheckEvent.builder()
+                .healthCheckId(healthCheck.getId())
+                .status(newStatus.name())
+                .httpCode(httpCode == 0 ? null : httpCode)
+                .latencyMs(latencyMs)
+                .error(error)
+                .observedAt(now.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli())
+                .build();
+
+        messagingTemplate.convertAndSend("/topic/health/" + healthCheck.getId(), event);
     }
 
     // interval 충족 여부(스케줄러에서 사용)
